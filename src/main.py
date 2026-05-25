@@ -8,8 +8,15 @@ Architecture overview (minimal but extensible):
 """
 
 from fastapi import FastAPI
+from slowapi import Limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
-from src.api.routes.proxy import router as proxy_router
+
+
+limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
 def create_app() -> FastAPI:
@@ -25,7 +32,13 @@ def create_app() -> FastAPI:
         description="Standalone application proxy that filters prompts before LLM access.",
     )
 
+    app.state.limiter = limiter
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     # Register API routes.
+    from src.api.routes.proxy import router as proxy_router
+
     app.include_router(proxy_router)
 
     return app

@@ -1,10 +1,12 @@
 """Proxy endpoint for receiving and filtering prompts before LLM execution."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from src.schemas.proxy import ErrorResponse, ProxyRequest, ProxyResponse
+from src.services.audit_logger import log_prompt_event
 from src.services.decision_logic import is_prompt_safe
+from src.main import limiter
 
 
 router = APIRouter(prefix="/api/v1", tags=["proxy"])
@@ -24,7 +26,8 @@ router = APIRouter(prefix="/api/v1", tags=["proxy"])
         },
     },
 )
-def proxy_prompt(payload: ProxyRequest) -> ProxyResponse:
+@limiter.limit("5/minute")
+def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
     """Accept a prompt, evaluate policy, then return mock LLM output.
 
     The endpoint performs three responsibilities:
@@ -34,7 +37,16 @@ def proxy_prompt(payload: ProxyRequest) -> ProxyResponse:
     """
 
     try:
+        client_ip = request.client.host if request.client else "unknown"
         safety = is_prompt_safe(payload.prompt)
+
+        log_prompt_event(
+            client_ip=client_ip,
+            prompt_text=payload.prompt,
+            is_safe=safety.is_safe,
+            category=safety.category,
+            risk_score=safety.risk_score,
+        )
 
         if not safety.is_safe:
             # Return a structured 403 payload so clients can inspect the risk signal.
