@@ -23,3 +23,6 @@ class ErrorResponse(BaseModel):
     """Standardized error message payload for blocked or failed requests."""
 
     detail: str = Field(..., description="Human-readable explanation of the error")
+    reason: str = Field(..., description="Human-readable block reason mirrored from detail")
+    category: str = Field(..., description="Guardrail category that triggered the block")
+    risk_score: str = Field(..., description="Severity score assigned to the matched rule")

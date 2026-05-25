@@ -1,9 +1,10 @@
 """Proxy endpoint for receiving and filtering prompts before LLM execution."""
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import JSONResponse
 
 from src.schemas.proxy import ErrorResponse, ProxyRequest, ProxyResponse
-from src.services.decision_logic import evaluate_prompt
+from src.services.decision_logic import is_prompt_safe
 
 
 router = APIRouter(prefix="/api/v1", tags=["proxy"])
@@ -33,12 +34,19 @@ def proxy_prompt(payload: ProxyRequest) -> ProxyResponse:
     """
 
     try:
-        decision = evaluate_prompt(payload.prompt)
+        safety = is_prompt_safe(payload.prompt)
 
-        if not decision.allowed:
-            # 403 is used for policy-based rejection where request format is valid,
-            # but business/security rules deny the content.
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=decision.reason)
+        if not safety.is_safe:
+            # Return a structured 403 payload so clients can inspect the risk signal.
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content=ErrorResponse(
+                    detail=safety.block_reason or "Prompt blocked by firewall policy.",
+                    reason=safety.block_reason or "Prompt blocked by firewall policy.",
+                    category=safety.category or "unknown",
+                    risk_score=safety.risk_score,
+                ).model_dump(),
+            )
 
         # Mock downstream LLM response (placeholder for future provider integration).
         return ProxyResponse(response=f"Mock LLM response: {payload.prompt}")
