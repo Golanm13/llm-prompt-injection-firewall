@@ -56,67 +56,49 @@ def _compile_rule(pattern: str, category: str, severity: str) -> SecurityRule:
 
 
 SYSTEM_PROMPT_OVERRIDE_RULES: tuple[SecurityRule, ...] = (
-    # התקפות קלאסיות של ביטול הנחיות קודמות
+    # אנגלית גמישה עם תמיכה בשגיאות כתיב (constrain/constraints)
     _compile_rule(
-        r"\b(?:ignore|disregard|forget|override|clear|reset|bypass)\s+(?:all\s+)?(?:previous|prior|earlier|past|initial)?\s*(?:instructions|directives|guidance|rules|context|constraints|prompts)\b",
+        r"\b(?:ignore|disregard|forget|override|bypass|clear|reset)\b.*?\b(?:instructions|directives|guidance|rules|context|constraint|prompt)s?\b",
         "system_prompt_override",
         HIGH_RISK,
     ),
     _compile_rule(
-        r"\bdisregard\s+(?:the\s+)?safety\s+(?:guidelines|instructions|rules|filters|policies)\b",
+        r"\b(?:system|developer|admin|root|supervisor)\b.*?\b(?:override|mode|access|privileges)\b",
         "system_prompt_override",
         HIGH_RISK,
     ),
     _compile_rule(
-        r"\b(?:system|developer|admin|root|supervisor)\s+(?:override|mode|access|privileges)\b",
+        r"\b(?:jailbreak|jailbroken|d\.a\.n\.|do\s+anything\s+now)\b",
         "system_prompt_override",
         HIGH_RISK,
     ),
-    # התקפות Jailbreak מבוססות מצב (כמו DAN / Developer Mode)
+    # עברית - הוסר ה-b\ כדי לתפוס וריאציות בצורה חופשית ומדויקת
     _compile_rule(
-        r"\byou\s+are\s+now\s+in\s+(?:developer\s+mode|jailbroken|dan\s+mode|unrestricted\s+mode)\b",
-        "system_prompt_override",
-        HIGH_RISK,
-    ),
-    _compile_rule(
-        r"\b(?:do\s+anything\s+now|d\.a\.n\.|jailbreak)\b",
-        "system_prompt_override",
-        HIGH_RISK,
-    ),
-    # תמיכה מורחבת בעברית לעקיפת פרומפטים
-    _compile_rule(
-        r"\b(?:תתעלם|התעלם|תשכח|תעקוף|תאפס)\s+(?:מההנחיות|מההוראות|מהכללים)\s+(?:הקודמות|הקודמים|הראשוניות|המקוריות)?\b",
+        r"(?:תתעלם|התעלם|תשכח|תעקוף|תאפס).*?(?:הנחיות|הוראות|כללים|הנחיה)",
         "system_prompt_override",
         HIGH_RISK,
     ),
 )
 
 DATA_LEAKING_RULES: tuple[SecurityRule, ...] = (
-    # שיפור קריטי: הפיכת מילות הקישור (the/your/any) לאופציונליות, והוספת שאלות (what is/can you)
     _compile_rule(
-        r"\b(?:reveal|show|print|expose|output|dump|share|get|display|write|tell\s+me)\s+(?:your\s+|the\s+|any\s+|all\s+)?(?:system\s+prompt|hidden\s+instructions|constraints|initial\s+prompt|original\s+instructions)\b",
+        r"\b(?:reveal|show|print|expose|output|dump|share|get|display|write|tell)\b.*?\b(?:system\s+prompt|hidden\s+instructions|constraints|constraint|initial\s+prompt|original\s+instructions)s?\b",
         "data_leaking_exfiltration",
         HIGH_RISK,
     ),
     _compile_rule(
-        r"\b(?:what\s+is|what\s+are)\s+(?:your\s+|the\s+)?(?:system\s+prompt|hidden\s+instructions|secret\s+rules|creator\s+instructions)\b",
+        r"\b(?:what\s+is|what\s+are|can\s+you\s+share)\b.*?\b(?:system\s+prompt|hidden\s+instructions|secret\s+rules|creator\s+instructions)\b",
         "data_leaking_exfiltration",
         HIGH_RISK,
     ),
     _compile_rule(
-        r"\b(?:show|reveal|print|expose|output|give\s+me)\s+(?:me\s+)?(?:the\s+)?(?:password|secret|token|credential|api\s+key)\b",
+        r"\b(?:show|reveal|print|expose|output|give\s+me)\b.*?\b(?:password|secret|token|credential|api\s+key)s?\b",
         "data_leaking_exfiltration",
         HIGH_RISK,
     ),
-    # הגנה מפני הנדסה הפוכה לפרומפט (Reverse Engineering)
+    # עברית משופרת - הוסרו ה-b\ והוספו מילות שאלה כמו "איך תוכנתת" או "איך בנית"
     _compile_rule(
-        r"\b(?:how\s+were\s+you\s+programmed|what\s+are\s+your\s+rules|repeat\s+the\s+instructions|copy\s+the\s+text\s+above)\b",
-        "data_leaking_exfiltration",
-        HIGH_RISK,
-    ),
-    # שיפור הגנה מורחבת בעברית להדלפת מידע
-    _compile_rule(
-        r"\b(?:תחשוף|הצג|תדפיס|תגלה|מהו|מה\s+הוא|מהם|רשום)\s+(?:את\s+|שלך\s+)?(?:פרומפט\s+המערכת|ההוראות\s+המוסתרות|הסיסמה|הסוד|הנחיות\s+המערכת|הוראות\s+היצרן)\b",
+        r"(?:תחשוף|הצג|תדפיס|תגלה|מהו|מה\s+הוא|מהם|רשום|פירוט|איך\s+תוכנתת|איך\s+בנו|איך\s+הגדירו).*?(?:פרומפט|הוראות|הנחיות|סיסמה|סוד)",
         "data_leaking_exfiltration",
         HIGH_RISK,
     ),
@@ -129,38 +111,33 @@ ROLEPLAY_ATTACK_RULES: tuple[SecurityRule, ...] = (
         MEDIUM_RISK,
     ),
     _compile_rule(
-        r"\bhypothetically\s+speaking\s+how\s+would\s+you\b",
+        r"\bhypothetically\s+speaking\b",
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
     _compile_rule(
-        r"\bact\s+as\s+an\s+evil\s+ai\s+without\s+restrictions\b",
+        r"\bevil\s+ai\b",
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
     _compile_rule(
-        r"\bpretend\s+you\s+are\s+(?:not\s+an\s+ai|someone\s+else|a\s+terminal|a\s+linux\s+shell)\b",
+        r"\bpretend\s+you\s+are\b",
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
-    # התקפות מבוססות תרגום או קידוד ("תרגם את המשפט הבא ובצע אותו")
+    # עברית חופשית ללא b\
     _compile_rule(
-        r"\b(?:translate|decode|base64|hex)\s+(?:the\s+)?(?:following|next)\s+(?:text|string|command|instruction)\b",
-        "hypothetical_roleplay_attack",
-        LOW_RISK,  # סיכון נמוך יותר אך עדיין נבדק בשרשרת
-    ),
-    _compile_rule(
-        r"\bבוא\s+נשחק\s+משחק\b",
+        r"בוא\s+נשחק\s+משחק",
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
     _compile_rule(
-        r"\bתיאורטית\s+איך\s+היית\b",
+        r"תיאורטית",
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
     _compile_rule(
-        r"\bתתנהג\s+כמו\s+בינה\s+מלאכותית\s+רעה\s+בלי\s+הגבלות\b",
+        r"בינה\s+מלאכותית\s+רעה",
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
