@@ -1,13 +1,20 @@
 """Application entrypoint for the LLM Firewall Proxy service.
 
 Architecture overview (minimal but extensible):
-- main.py: app bootstrap and global middleware/routers wiring.
+- main.py: app bootstrap, environment loading, and global service wiring.
 - api/routes: HTTP transport layer (FastAPI endpoints).
 - schemas: request/response contracts (Pydantic models).
 - services: business/security decision logic.
 """
 
-from fastapi import FastAPI
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, status
+from google import genai
 from slowapi import Limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -15,16 +22,44 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 
+_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path=_ENV_PATH)
+
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+
+def generate_gemini_response(prompt: str) -> str:
+    """Generate a response from Gemini or raise a 503 if unavailable."""
+
+    if gemini_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Gemini API is not configured.",
+        )
+
+    try:
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
+        text = getattr(response, "text", None)
+        if text:
+            return text
+        return str(response)
+    except Exception as exc:  # pragma: no cover - external API failure path
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Gemini API is temporarily unavailable.",
+        ) from exc
 
 
 def create_app() -> FastAPI:
-    """Factory to create and configure the FastAPI application instance.
-
-    A factory keeps startup wiring testable and flexible for future env-specific
-    initialization (observability, auth middleware, dependency injection, etc.).
-    """
+    """Factory to create and configure the FastAPI application instance."""
 
     app = FastAPI(
         title="LLM Firewall Proxy",
@@ -36,7 +71,6 @@ def create_app() -> FastAPI:
     app.add_middleware(SlowAPIMiddleware)
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # Register API routes.
     from src.api.routes.proxy import router as proxy_router
 
     app.include_router(proxy_router)
@@ -44,5 +78,4 @@ def create_app() -> FastAPI:
     return app
 
 
-# ASGI application used by uvicorn (e.g., `uvicorn src.main:app --reload`).
 app = create_app()

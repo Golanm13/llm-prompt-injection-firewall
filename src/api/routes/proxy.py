@@ -1,12 +1,13 @@
 """Proxy endpoint for receiving and filtering prompts before LLM execution."""
 
+import src.main as app_main
+
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from src.schemas.proxy import ErrorResponse, ProxyRequest, ProxyResponse
 from src.services.audit_logger import log_prompt_event
 from src.services.decision_logic import is_prompt_safe
-from src.main import limiter
 
 
 router = APIRouter(prefix="/api/v1", tags=["proxy"])
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/api/v1", tags=["proxy"])
         },
     },
 )
-@limiter.limit("5/minute")
+@app_main.limiter.limit("5/minute")
 def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
     """Accept a prompt, evaluate policy, then return mock LLM output.
 
@@ -60,8 +61,8 @@ def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
                 ).model_dump(),
             )
 
-        # Mock downstream LLM response (placeholder for future provider integration).
-        return ProxyResponse(response=f"Mock LLM response: {payload.prompt}")
+        gemini_response = app_main.generate_gemini_response(payload.prompt)
+        return ProxyResponse(response=gemini_response)
 
     except HTTPException:
         # Re-raise known API exceptions unchanged to preserve intended status code.

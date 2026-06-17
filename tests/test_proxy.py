@@ -68,13 +68,14 @@ def test_proxy_allows_safe_prompt(tmp_path, monkeypatch) -> None:
 
     _reset_rate_limiter()
     audit_log_path = _configure_audit_log(tmp_path, monkeypatch)
+    monkeypatch.setattr("src.main.generate_gemini_response", lambda prompt: f"Gemini response: {prompt}")
 
     response = client.post("/api/v1/proxy", json={"prompt": "Hello firewall"})
 
     assert response.status_code == 200
     payload = response.json()
     assert "response" in payload
-    assert payload["response"] == "Mock LLM response: Hello firewall"
+    assert payload["response"] == "Gemini response: Hello firewall"
     assert _read_audit_lines(audit_log_path)[-1]["is_safe"] is True
 
 
@@ -104,6 +105,7 @@ def test_proxy_rate_limits_after_five_requests(tmp_path, monkeypatch) -> None:
 
     _reset_rate_limiter()
     _configure_audit_log(tmp_path, monkeypatch)
+    monkeypatch.setattr("src.main.generate_gemini_response", lambda prompt: f"Gemini response: {prompt}")
 
     for _ in range(5):
         response = client.post("/api/v1/proxy", json={"prompt": "Hello firewall"})
@@ -120,6 +122,7 @@ def test_proxy_logs_blocked_prompt_without_crashing(tmp_path, monkeypatch) -> No
 
     _reset_rate_limiter()
     audit_log_path = _configure_audit_log(tmp_path, monkeypatch)
+    monkeypatch.setattr("src.main.generate_gemini_response", lambda prompt: f"Gemini response: {prompt}")
 
     response = client.post(
         "/api/v1/proxy",
