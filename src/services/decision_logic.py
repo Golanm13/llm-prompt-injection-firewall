@@ -8,8 +8,11 @@ categories and precompiled at import time for fast repeated evaluation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import re
+from pathlib import Path
+from threading import Lock
 from typing import Optional, Sequence
 from fastapi import HTTPException, status
 from google.genai import types
@@ -21,6 +24,8 @@ LOW_RISK = "LOW"
 NO_RISK = "NONE"
 
 _RISK_RANK = {LOW_RISK: 1, MEDIUM_RISK: 2, HIGH_RISK: 3}
+FIREWALL_AUDIT_PATH = Path(__file__).resolve().parents[2] / "firewall_audit.jsonl"
+_AUDIT_WRITE_LOCK = Lock()
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,16 @@ DATA_LEAKING_RULES: tuple[SecurityRule, ...] = (
         "data_leaking_exfiltration",
         HIGH_RISK,
     ),
+    _compile_rule(
+        r"(?:תפרוץ|לפרוץ|גישה|כניסה).*?(?:חשבון|בנק|חשבון\s+בנק|כרטיס\s+אשראי|קוד|סיסמה)",
+        "financial_attack",
+        HIGH_RISK,
+    ),
+    _compile_rule(
+        r"(?:break\s+into|hack|access|steal).*?(?:bank\s+account|credit\s+card|credentials|password)",
+        "financial_attack",
+        HIGH_RISK,
+    ),
 )
 
 ROLEPLAY_ATTACK_RULES: tuple[SecurityRule, ...] = (
@@ -161,6 +176,33 @@ def _get_gemini_client():
     from src.main import gemini_client
 
     return gemini_client
+
+
+def _append_firewall_audit_entry(
+    prompt: str,
+    decision: str,
+    category: Optional[str],
+    risk_score: str,
+) -> None:
+    """Append one firewall decision to the local JSONL audit trail."""
+
+    audit_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prompt": prompt,
+        "decision": decision,
+        "category": category,
+        "risk_score": risk_score,
+    }
+
+    serialized_entry = json.dumps(audit_entry, ensure_ascii=False)
+
+    try:
+        with _AUDIT_WRITE_LOCK:
+            with FIREWALL_AUDIT_PATH.open("a", encoding="utf-8") as audit_file:
+                audit_file.write(f"{serialized_entry}\n")
+    except OSError:
+        # Audit logging must never block or fail the firewall path.
+        pass
 
 
 def _select_risk_score(matches: Sequence[SecurityRule]) -> str:
@@ -237,26 +279,30 @@ def is_prompt_safe(prompt: str) -> PromptSafetyResult:
     matching_rules = [rule for rule in ALL_SECURITY_RULES if rule.pattern.search(prompt)]
 
     if not matching_rules:
-        return PromptSafetyResult(
+        result = PromptSafetyResult(
             is_safe=True,
             block_reason=None,
             category=None,
             risk_score=NO_RISK,
         )
+        _append_firewall_audit_entry(prompt, "safe", result.category, result.risk_score)
+        return result
 
     selected_risk = _select_risk_score(matching_rules)
     selected_matches = [rule for rule in matching_rules if rule.severity == selected_risk]
     selected_rule = selected_matches[0]
 
     if selected_risk == HIGH_RISK and is_prompt_benign(prompt):
-        return PromptSafetyResult(
+        result = PromptSafetyResult(
             is_safe=True,
             block_reason=None,
             category=None,
             risk_score=NO_RISK,
         )
+        _append_firewall_audit_entry(prompt, "safe", result.category, result.risk_score)
+        return result
 
-    return PromptSafetyResult(
+    result = PromptSafetyResult(
         is_safe=False,
         block_reason=(
             f"Blocked by firewall policy: {selected_risk} risk prompt injection detected "
@@ -265,6 +311,8 @@ def is_prompt_safe(prompt: str) -> PromptSafetyResult:
         category=selected_rule.category,
         risk_score=selected_risk,
     )
+    _append_firewall_audit_entry(prompt, "blocked", result.category, result.risk_score)
+    return result
 
 
 def evaluate_prompt(prompt: str) -> DecisionResult:
