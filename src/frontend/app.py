@@ -18,8 +18,7 @@ import streamlit as st
 
 
 DEFAULT_PROXY_URL = "http://127.0.0.1:8000/api/v1/proxy"
-AUDIT_LOG_PATH = Path(__file__).resolve().parents[2] / "audit_log.jsonl"
-
+FIREWALL_AUDIT_PATH = Path(__file__).resolve().parents[2] / "firewall_audit.jsonl"
 
 def build_prompt_request(prompt_text: str) -> dict[str, Any]:
     """Construct the request body expected by the proxy service."""
@@ -34,11 +33,11 @@ def read_recent_audit_events(limit: int = 10) -> list[dict[str, Any]]:
     and returns an empty list in that case.
     """
 
-    if not AUDIT_LOG_PATH.exists():
+    if not FIREWALL_AUDIT_PATH.exists():
         return []
 
     recent_lines: deque[str] = deque(maxlen=limit)
-    with AUDIT_LOG_PATH.open("r", encoding="utf-8") as audit_file:
+    with FIREWALL_AUDIT_PATH.open("r", encoding="utf-8") as audit_file:
         for line in audit_file:
             line = line.strip()
             if line:

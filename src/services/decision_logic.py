@@ -66,7 +66,6 @@ def _compile_rule(pattern: str, category: str, severity: str) -> SecurityRule:
 
 
 SYSTEM_PROMPT_OVERRIDE_RULES: tuple[SecurityRule, ...] = (
-   
     _compile_rule(
         r"\b(?:ignore|disregard|forget|override|bypass|clear|reset)\b.*?\b(?:instructions|directives|guidance|rules|context|constraint|prompt)s?\b",
         "system_prompt_override",
@@ -82,7 +81,6 @@ SYSTEM_PROMPT_OVERRIDE_RULES: tuple[SecurityRule, ...] = (
         "system_prompt_override",
         HIGH_RISK,
     ),
-    # עברית - הוסר ה-b\ כדי לתפוס וריאציות בצורה חופשית ומדויקת
     _compile_rule(
         r"(?:תתעלם|התעלם|תשכח|תעקוף|תאפס).*?(?:הנחיות|הוראות|כללים|הנחיה)",
         "system_prompt_override",
@@ -106,7 +104,6 @@ DATA_LEAKING_RULES: tuple[SecurityRule, ...] = (
         "data_leaking_exfiltration",
         HIGH_RISK,
     ),
-    
     _compile_rule(
         r"(?:תחשוף|הצג|תדפיס|תגלה|מהו|מה\s+הוא|מהם|רשום|פירוט|איך\s+תוכנתת|איך\s+בנו|איך\s+הגדירו).*?(?:פרומפט|הוראות|הנחיות|סיסמה|סוד)",
         "data_leaking_exfiltration",
@@ -145,7 +142,6 @@ ROLEPLAY_ATTACK_RULES: tuple[SecurityRule, ...] = (
         "hypothetical_roleplay_attack",
         MEDIUM_RISK,
     ),
-    
     _compile_rule(
         r"בוא\s+נשחק\s+משחק",
         "hypothetical_roleplay_attack",
@@ -163,10 +159,39 @@ ROLEPLAY_ATTACK_RULES: tuple[SecurityRule, ...] = (
     ),
 )
 
+SOCIAL_ENGINEERING_RULES: tuple[SecurityRule, ...] = (
+    _compile_rule(
+        r"\b(?:grandma(?:ther)?|family\s+emergency|medical\s+emergency|urgent\s+help)\b",
+        "social_engineering",
+        HIGH_RISK,
+    ),
+    _compile_rule(
+        r"\b(?:please\s+act\s+fast|need\s+this\s+now|immediately|right\s+away|as\s+soon\s+as\s+possible|urgent|critical)\b",
+        "social_engineering",
+        MEDIUM_RISK,
+    ),
+    _compile_rule(
+        r"\b(?:I\s+am\s+your\s+manager|I\s+am\s+the\s+admin|I\s+am\s+the\s+CEO|security\s+team|IT\s+support|authoritative\s+request)\b",
+        "social_engineering",
+        HIGH_RISK,
+    ),
+    _compile_rule(
+        r"\b(?:this\s+is\s+an\s+emergency|someone\s+is\s+hurt|hospital|police|fire|bank\s+alert|account\s+locked)\b",
+        "social_engineering",
+        HIGH_RISK,
+    ),
+    _compile_rule(
+        r"(?:תעזור\s+לי|עזרה\s+דחופה|מקרה\s+חירום|סבתא|סבתא\s+שלי|מנהל\s+שלך|אני\s+מההנהלה|מיד|בדחיפות)",
+        "social_engineering",
+        HIGH_RISK,
+    ),
+)
+
 ALL_SECURITY_RULES: tuple[SecurityRule, ...] = (
     *SYSTEM_PROMPT_OVERRIDE_RULES,
     *DATA_LEAKING_RULES,
     *ROLEPLAY_ATTACK_RULES,
+    *SOCIAL_ENGINEERING_RULES,
 )
 
 
@@ -201,7 +226,6 @@ def _append_firewall_audit_entry(
             with FIREWALL_AUDIT_PATH.open("a", encoding="utf-8") as audit_file:
                 audit_file.write(f"{serialized_entry}\n")
     except OSError:
-        # Audit logging must never block or fail the firewall path.
         pass
 
 
@@ -248,7 +272,7 @@ def is_prompt_benign(prompt: str) -> bool:
                 response_mime_type="application/json",
             ),
         )
-    except Exception as exc:  # pragma: no cover - external API failure path
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Gemini judge model is temporarily unavailable.",

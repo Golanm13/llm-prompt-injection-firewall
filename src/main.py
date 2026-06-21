@@ -37,6 +37,13 @@ if not GEMINI_API_KEY:
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
+def reset_firewall_audit_log() -> None:
+    """Create or truncate the firewall audit log at the start of each run."""
+
+    FIREWALL_AUDIT_PATH = Path(__file__).resolve().parents[1] / "firewall_audit.jsonl"
+    FIREWALL_AUDIT_PATH.write_text("", encoding="utf-8")
+
+
 def generate_gemini_response(prompt: str) -> str:
     """Generate a response from Gemini or raise a 503 if unavailable."""
     if gemini_client is None:
@@ -72,6 +79,7 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_event_handler("startup", reset_firewall_audit_log)
 
     # הראוטינג המקורי של הפרויקט שלך
     from src.api.routes.proxy import router as proxy_router
