@@ -13,35 +13,20 @@ from threading import Lock
 from typing import Optional
 
 
-AUDIT_LOG_PATH = Path(__file__).resolve().parents[2] / "audit_log.jsonl"
-_WRITE_LOCK = Lock()
+FIREWALL_AUDIT_PATH = Path(__file__).resolve().parents[2] / "firewall_audit.jsonl"
+_LOG_LOCK = Lock()
 
-
-def log_prompt_event(
-    client_ip: str,
-    prompt_text: str,
-    is_safe: bool,
-    category: Optional[str],
-    risk_score: str,
-) -> None:
-    """Append a single prompt decision record to the audit log.
-
-    The file is written in JSONL format to keep ingestion simple and maintain an
-    append-only audit trail. A process-local lock prevents concurrent writes from
-    interleaving lines.
-    """
-
-    event = {
+def log_prompt_event(client_ip: str, prompt_text: str, is_safe: bool, category: str | None, risk_score: str) -> None:
+    """Logs firewall evaluation details asynchronously or via background tasks to a single unified file."""
+    log_entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "client_ip": client_ip,
-        "prompt_text": prompt_text,
-        "is_safe": is_safe,
+        "prompt": prompt_text.strip(),
+        "decision": "safe" if is_safe else "blocked",
         "category": category,
-        "risk_score": risk_score,
+        "risk_score": risk_score
     }
-
-    serialized_event = json.dumps(event, ensure_ascii=False)
-
-    with _WRITE_LOCK:
-        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as audit_file:
-            audit_file.write(f"{serialized_event}\n")
+    
+    with _LOG_LOCK:
+        with open(FIREWALL_AUDIT_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry) + "\n")

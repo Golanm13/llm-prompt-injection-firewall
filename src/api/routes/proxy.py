@@ -2,7 +2,7 @@
 
 import src.main as app_main
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from src.schemas.proxy import ErrorResponse, ProxyRequest, ProxyResponse
@@ -29,18 +29,11 @@ router = APIRouter(prefix="/api/v1", tags=["proxy"])
 )
 @app_main.limiter.limit("5/minute")
 def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
-    """Accept a prompt, evaluate policy, then return mock LLM output.
-
-    The endpoint performs three responsibilities:
-    1) Input contract validation through Pydantic models.
-    2) Delegation to a decision service (business logic layer).
-    3) Consistent HTTP responses for allow/block/error outcomes.
-    """
-
     try:
         client_ip = request.client.host if request.client else "unknown"
         safety = is_prompt_safe(payload.prompt)
 
+        # רישום מיידי ומובטח של האירוע ללוג לפני הפנייה למודלים
         log_prompt_event(
             client_ip=client_ip,
             prompt_text=payload.prompt,
@@ -50,7 +43,6 @@ def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
         )
 
         if not safety.is_safe:
-            # Return a structured 403 payload so clients can inspect the risk signal.
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content=ErrorResponse(
@@ -65,10 +57,8 @@ def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
         return ProxyResponse(response=gemini_response)
 
     except HTTPException:
-        # Re-raise known API exceptions unchanged to preserve intended status code.
         raise
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        # Hide internal exception details from clients to avoid information leakage.
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal firewall processing error.",

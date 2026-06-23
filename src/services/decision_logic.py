@@ -26,8 +26,6 @@ LOW_RISK = "LOW"
 NO_RISK = "NONE"
 
 _RISK_RANK = {LOW_RISK: 1, MEDIUM_RISK: 2, HIGH_RISK: 3}
-FIREWALL_AUDIT_PATH = Path(__file__).resolve().parents[2] / "firewall_audit.jsonl"
-_AUDIT_WRITE_LOCK = Lock()
 
 
 @dataclass(frozen=True)
@@ -232,32 +230,6 @@ def _get_gemini_client():
     return gemini_client
 
 
-def _append_firewall_audit_entry(
-    prompt: str,
-    decision: str,
-    category: Optional[str],
-    risk_score: str,
-) -> None:
-    """Append one firewall decision to the local JSONL audit trail."""
-
-    audit_entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "prompt": prompt,
-        "decision": decision,
-        "category": category,
-        "risk_score": risk_score,
-    }
-
-    serialized_entry = json.dumps(audit_entry, ensure_ascii=False)
-
-    try:
-        with _AUDIT_WRITE_LOCK:
-            with FIREWALL_AUDIT_PATH.open("a", encoding="utf-8") as audit_file:
-                audit_file.write(f"{serialized_entry}\n")
-    except OSError:
-        pass
-
-
 def _select_risk_score(matches: Sequence[SecurityRule]) -> str:
     """Return the highest risk score observed across all matching rules."""
 
@@ -267,13 +239,13 @@ def _select_risk_score(matches: Sequence[SecurityRule]) -> str:
     highest = max(matches, key=lambda rule: _RISK_RANK[rule.severity])
     return highest.severity
 
-
 def _call_fallback_provider_judge(prompt: str) -> bool:
     """
     Fallback to a local Ollama model (e.g., llama3) for evaluation.
     Requires Ollama to be running locally on port 11434.
     """
     try:
+        # ביצוע קריאת ה-HTTP האמיתית עם הגבלת זמן של 5 שניות
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
@@ -287,19 +259,26 @@ def _call_fallback_provider_judge(prompt: str) -> bool:
                 "stream": False,
                 "format": "json"
             },
-            timeout=10
+            timeout=5
         )
         response.raise_for_status()
         res_json = response.json()
         
-        # Extract the text response from Ollama and parse it as JSON
-        response_text = res_json.get("response", "{}")
-        parsed = json.loads(response_text)
-        return bool(parsed.get("is_benign", False))
+        # חילוץ הטקסט מתוך תגובת השרת
+        response_text = res_json.get("response", "{}").strip()
         
+        # שימוש ב-Regex לחילוץ בלוק ה-JSON במקרה שהמודל המקומי הוסיף טקסט חופשי
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+        if json_match:
+            clean_json_str = json_match.group(0)
+            parsed = json.loads(clean_json_str)
+            return bool(parsed.get("is_benign", False))
+        else:
+            raise json.JSONDecodeError("No valid JSON structure found in response text", response_text, 0)
+            
     except Exception as exc:
         raise RuntimeError(f"Local fallback model is unavailable: {exc}")
-
+    
 
 def is_prompt_benign(prompt: str) -> bool:
     """Ask Gemini's judge model whether a high-risk prompt is actually benign, with a local fallback."""
@@ -318,11 +297,10 @@ def is_prompt_benign(prompt: str) -> bool:
         "Respond only in JSON."
     )
 
-    max_retries = 3
+    max_retries = 2
     
     for attempt in range(max_retries):
         try:
-            # ניסיון ראשוני מול ג'מיני
             response = gemini_client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
@@ -335,31 +313,35 @@ def is_prompt_benign(prompt: str) -> bool:
             
             response_text = getattr(response, "text", None) or str(response)
             
-            try:
-                parsed_response = json.loads(response_text)
+            # ניתוח ה-JSON
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if json_match:
+                clean_json_str = json_match.group(0)
+                parsed_response = json.loads(clean_json_str)
                 return bool(parsed_response.get("is_benign", False))
-            except json.JSONDecodeError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Gemini judge model returned an invalid JSON response.",
-                ) from exc
+            else:
+                # שגיאת מבנה JSON במודל עם אנטרופיה 0 - אין טעם לנסות שוב, נעבור ישר לפולבק
+                break
 
         except Exception as exc:
-            # במקרה של שגיאה (כמו Rate Limit), ממתינים שנייה ומנסים שוב אם נותרו ניסיונות
-            if attempt < max_retries - 1:
-                time.sleep(1)
-                continue
+            exc_str = str(exc).lower()
+            # אם מדובר בשגיאת מכסה/טוקנים (Quota / 429), אין טעם להמתין ולנסות שוב - יוצאים מיד לפולבק
+            if "quota" in exc_str or "exhausted" in exc_str or "429" in exc_str:
+                break
             
-            # אם כל הניסיונות מול ג'מיני נכשלו, מפעילים את הפתרון המקומי
-            try:
-                return _call_fallback_provider_judge(prompt)
-            except Exception as fallback_exc:
-                # אם גם מודל הגיבוי קורס, זורקים שגיאה שתיתפס על ידי 
-                # FAIL SECURE
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="All security judge models (Primary and Fallback) are temporarily unavailable.",
-                ) from fallback_exc
+            if attempt < max_retries - 1:
+                time.sleep(0.5)
+                continue
+            break
+        
+    # הפעלת הגיבוי המקומי במידה וג'מיני נכשל או חרג מהמכסה שלו
+    try:
+        return _call_fallback_provider_judge(prompt)
+    except Exception as fallback_exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="All security judge models (Primary and Fallback) are temporarily unavailable.",
+        ) from fallback_exc
 
 def is_prompt_safe(prompt: str) -> PromptSafetyResult:
     """Evaluate a prompt using categorized, precompiled injection rules.
@@ -378,7 +360,6 @@ def is_prompt_safe(prompt: str) -> PromptSafetyResult:
             category=None,
             risk_score=NO_RISK,
         )
-        _append_firewall_audit_entry(prompt, "safe", result.category, result.risk_score)
         return result
 
     selected_risk = _select_risk_score(matching_rules)
@@ -394,7 +375,6 @@ def is_prompt_safe(prompt: str) -> PromptSafetyResult:
                     category=None,
                     risk_score=NO_RISK,
                 )
-                _append_firewall_audit_entry(prompt, "safe", result.category, result.risk_score)
                 return result
         except Exception:
             # FAIL-SECURE FALLBACK: Gemini API completely failed after retries.
@@ -408,7 +388,6 @@ def is_prompt_safe(prompt: str) -> PromptSafetyResult:
                 category=selected_rule.category,
                 risk_score=selected_risk,
             )
-            _append_firewall_audit_entry(prompt, "blocked", result.category, result.risk_score)
             return result
 
     result = PromptSafetyResult(
@@ -420,7 +399,6 @@ def is_prompt_safe(prompt: str) -> PromptSafetyResult:
         category=selected_rule.category,
         risk_score=selected_risk,
     )
-    _append_firewall_audit_entry(prompt, "blocked", result.category, result.risk_score)
     return result
 
 def evaluate_prompt(prompt: str) -> DecisionResult:

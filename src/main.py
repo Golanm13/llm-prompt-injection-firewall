@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-
+import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 from google import genai
@@ -36,24 +36,40 @@ if not GEMINI_API_KEY:
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
-
 def reset_firewall_audit_log() -> None:
-    """Create or truncate the firewall audit log at the start of each run."""
+    """Deletes the unified firewall audit log file at startup to clean previous environment sessions."""
+    log_path = Path(__file__).resolve().parents[1] / "firewall_audit.jsonl"
+    try:
+        log_path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
-    FIREWALL_AUDIT_PATH = Path(__file__).resolve().parents[1] / "firewall_audit.jsonl"
-    FIREWALL_AUDIT_PATH.write_text("", encoding="utf-8")
-
+def _call_ollama_generation(prompt: str) -> str:
+    """Fallback to local Ollama for answering the prompt when Gemini is unavailable."""
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "llama3",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=45
+        )
+        response.raise_for_status()
+        return response.json().get("response", "").strip()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Both Gemini API and local Ollama generation failed: {str(exc)}",
+        )
 
 def generate_gemini_response(prompt: str) -> str:
     """Generate a response from Gemini or raise a 503 if unavailable."""
     if gemini_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Gemini API is not configured.",
-        )
+        return _call_ollama_generation(prompt)
 
     try:
-        
         response = gemini_client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
@@ -62,12 +78,15 @@ def generate_gemini_response(prompt: str) -> str:
         if text:
             return text
         return str(response)
-    except Exception as exc:  # pragma: no cover - external API failure path
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Gemini API is temporarily unavailable: {str(exc)}",
-        ) from exc
-
+    except Exception as exc:  # Caught 429 / Quota / Network errors
+        try:
+            # ניסיון מעבר אוטומטי למודל המקומי במידה וג'מיני חסום
+            return _call_ollama_generation(prompt)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Gemini API is temporarily unavailable and Ollama fallback failed: {str(exc)}",
+            ) from exc
 
 def create_app() -> FastAPI:
     """Factory to create and configure the FastAPI application instance."""
@@ -82,7 +101,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_event_handler("startup", reset_firewall_audit_log)
 
-    # הראוטינג המקורי של הפרויקט שלך
+    # Include proxy route endpoints
     from src.api.routes.proxy import router as proxy_router
     app.include_router(proxy_router)
 

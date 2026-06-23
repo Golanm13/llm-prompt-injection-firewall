@@ -6,4 +6,4 @@ slowapi==0.1.9
 streamlit==1.49.0
 requests==2.32.3
 python-dotenv==1.0.1
-google-genai
+google-genai==2.8.0
