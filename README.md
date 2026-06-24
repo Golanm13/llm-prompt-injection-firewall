@@ -194,26 +194,33 @@ The LLM Judge acts as a **semantic verifier** for high-risk prompts and helps di
 
 # Project Structure
 
-```plaintext
 LLM_Firewall_Project/
-├── src/
-│   ├── api/
-│   │   └── routes/
-│   │       └── proxy.py
-│   ├── schemas/
-│   │   └── proxy.py
-│   ├── services/
-│   │   ├── audit_logger.py
-│   │   └── decision_logic.py
-│   └── main.py
-│
-├── tests/
-│   └── test_decision_logic.py
-│
-├── dashboard.py
-├── run_demo.py
-├── firewall_audit.jsonl
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+├── docs/                             # Project documentation and extended design resources
+├── src/                              # Main application source code
+│   ├── api/                          # HTTP transport layer and endpoints
+│   │   ├── routes/
+│   │   │   ├── proxy.py              # Central firewall proxy routing logic
+│   │   │   └── __init__.py
+│   │   └── __init__.py
+│   ├── frontend/                     # User interface layer
+│   │   └── app.py                    # Streamlit telemetry and metrics dashboard app
+│   ├── schemas/                      # Data validation and API contracts
+│   │   ├── proxy.py                  # Pydantic request and response models
+│   │   └── __init__.py
+│   ├── services/                     # Core business logic and security modules
+│   │   ├── audit_logger.py           # Thread-safe local JSON Lines event logging
+│   │   ├── decision_logic.py         # Dual-layer guardrails engine (Regex + LLM Judge)
+│   │   └── __init__.py
+│   ├── main.py                       # Application bootstrap and environment provisioning
+│   └── __init__.py
+├── tests/                            # Automation and validation test suite
+│   ├── test_decision_logic.py        # Isolated unit tests for the guardrail rules
+│   └── test_proxy.py                 # Integration tests for HTTP endpoint behavior
+├── .env                              # Local runtime environment configurations and secrets
+├── .env.example                      # Distribution template for setting environment keys
+├── conftest.py                       # Global pytest orchestration settings and fixtures
+├── dashboard.py                      # Root execution entrypoint for the Streamlit UI
+├── README.md                         # Comprehensive documentation and project manual
+├── requirements.txt                  # Fixed list of third-party package dependencies
+├── run_demo.bat                      # Windows batch utility for multi-service execution
+└── test_gemini.py                    # Diagnostic pipeline verification script for Gemini API
