@@ -2,115 +2,218 @@
 
 ## Overview
 
-LLM-Firewall is a prompt security guardrail engine designed to protect large language model workflows from prompt injection, data exfiltration attempts, and roleplay-based jailbreaks. The project uses a two-stage architecture: a fast Regex-based firewall for initial detection, followed by a Gemini Judge model for context-aware validation of high-risk prompts.
+**LLM-Firewall** is a prompt security guardrail engine designed to protect Large Language Model (LLM) workflows from:
 
-This design balances defensive speed with semantic accuracy. The first layer rejects clearly malicious prompts quickly, while the second layer helps reduce false positives in legitimate academic, testing, or security-research scenarios.
+- Prompt injection
+- Data exfiltration attempts
+- Roleplay-based jailbreak attacks
+
+The project uses a **two-stage architecture**:
+
+1. **Regex-based Firewall** — fast initial detection.
+2. **LLM-as-a-Judge Validation Layer** — context-aware validation of high-risk prompts.
+
+This design balances **defensive speed** with **semantic accuracy**.
+
+The first layer rejects clearly malicious prompts quickly, while the second layer reduces false positives in legitimate academic, testing, or security-research scenarios using the **Google Gemini API**, with an automated local fallback to **Ollama** if the upstream API becomes unavailable.
+
+---
 
 ## Key Features
 
-- Dual-layer defense with Regex rule matching and LLM-as-a-Judge validation.
-- Semantic verification using the Google Gemini API for high-risk prompts.
-- Structured audit logging for every prompt decision.
-- Real-time observability dashboard built with Streamlit.
-- Rate limiting and API hardening for the FastAPI proxy endpoint.
+- **Dual-Layer Defense**  
+  Regex rule matching combined with LLM-as-a-Judge validation.
+
+- **Semantic Verification**  
+  Google Gemini API integration for evaluating high-risk and ambiguous prompts.
+
+- **Robust Local Fallback**  
+  Automated transition to local Ollama models (e.g., Llama 3) to handle:
+  - API timeouts
+  - `429 Rate Limits`
+  - Connectivity failures  
+  *(Fail-Secure architecture)*
+
+- **Synchronous Audit Logging**  
+  Inline event logging to guarantee threat intelligence persistence (`JSONL` format), even during execution faults or upstream API crashes.
+
+- **Real-Time Observability**  
+  Interactive dashboard built with Streamlit for monitoring:
+  - Blocked vs. allowed traffic
+  - Risk categories
+
+- **API Hardening**  
+  Rate limiting (**SlowAPI**) and strict **Pydantic** payload validation on the FastAPI proxy endpoint.
+
+---
 
 ## Tech Stack
 
-- FastAPI for the backend API and proxy service.
-- Streamlit for the observability dashboard.
-- Google GenAI SDK for Gemini model access.
-- SlowAPI for rate limiting.
-- Python standard library utilities for logging and file handling.
+| Component | Purpose |
+|----------|---------|
+| FastAPI | Backend API and proxy service |
+| Streamlit | Observability and monitoring dashboard |
+| Google GenAI SDK | Cloud-based semantic model access |
+| Ollama | Local offline fallback modeling |
+| SlowAPI | In-memory rate limiting |
+| Pytest | Test suite with `monkeypatch` for mocked judge evaluations |
 
-## How to Run
+---
 
-### 1. Install dependencies
+# How to Run
+
+## 1. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment variables
+---
 
-Create a `.env` file in the project root and set your Gemini API key:
+## 2. Configure Environment Variables
+
+Create a `.env` file in the project root based on `.env.example`.
 
 ```env
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
+OLLAMA_HOST=http://localhost:11434
 ```
 
-### 3. Start the FastAPI proxy app
+---
 
-Open the first terminal window and run:
+## 3. Start Local Ollama (Fallback Requirement)
+
+Ensure Ollama is installed and running locally.
+
+Pull/start the target model in a dedicated terminal:
 
 ```bash
-uvicorn src.main:app --reload --port 8000
+ollama run llama3
 ```
 
-The proxy endpoint is available at:
+---
 
-```text
-http://localhost:8000/api/v1/proxy
+## 4. Execute the System
+
+### Run all components simultaneously
+
+(FastAPI backend + Streamlit dashboard)
+
+```bash
+python run_demo.py
 ```
 
-### 4. Start the Streamlit dashboard
+### Or run manually in separate terminals
 
-Open a second terminal window and run:
+Start the FastAPI proxy server:
+
+```bash
+uvicorn src.main:create_app --reload
+```
+
+Start the Streamlit dashboard:
 
 ```bash
 streamlit run dashboard.py
 ```
 
-The dashboard reads from `firewall_audit.jsonl` in the project root and shows:
+---
 
-- Total requests vs. blocked requests.
-- Distribution of blocked categories.
-- The 20 most recent firewall events.
+# Architecture & Security Logic
 
-## Security Logic
+The firewall uses a **performance-first pipeline with semantic fallback**.
 
-The firewall uses a performance-first pipeline with a semantic fallback.
+## Why Regex First (Strengths)
 
-### Why Regex First
+Regex rules are:
+- Extremely fast
+- Deterministic
+- Cheap to evaluate (`O(N)` time complexity with RE2-style engines / length constraints)
 
-Regex rules are extremely fast, deterministic, and cheap to evaluate. They are ideal for catching obvious injection patterns such as system prompt overrides, exfiltration commands, and roleplay-based attacks. This makes the first layer suitable for blocking the majority of malicious traffic with minimal latency.
+They are ideal for catching obvious injection patterns such as:
+- System prompt overrides
+- Exfiltration commands
+- Roleplay-based attacks
 
-### Why Gemini Second
+This makes the first layer suitable for blocking the majority of malicious traffic with **near-zero latency**.
 
-Regex alone can be overly rigid and may flag harmless prompts that contain suspicious-looking language in an academic, debugging, or security-testing context. The Gemini Judge model acts as a semantic verifier for high-risk prompts, helping distinguish genuine threats from false positives.
+---
 
-### Trade-off: Performance vs. Accuracy
+## Why LLM-as-a-Judge Second (Mitigating Weaknesses)
 
-- Regex provides high throughput and predictable behavior.
-- Gemini adds contextual accuracy, but with additional latency and API dependency.
+Regex alone can be overly rigid and may flag harmless prompts containing suspicious-looking language in:
+- Academic contexts
+- Debugging scenarios
+- Security testing
 
-The combined design is intentionally layered: fast pattern matching first, then deeper semantic judgment only when needed.
+The LLM Judge acts as a **semantic verifier** for high-risk prompts and helps distinguish genuine threats from false positives.
 
-## Future Improvements
+---
 
-- Add more fine-grained Regex rules for specialized prompt injection variants.
-- Support local LLM judges to improve privacy and reduce external API dependence.
-- Add authentication and role-based access control to the dashboard.
-- Extend observability with filtering, search, and export tools for audit events.
-- Add structured alerts for repeated blocked requests or rate-limit violations.
+## Trade-offs
 
-## Project Structure
+### Performance vs. Accuracy
 
-```text
-README.md
-dashboard.py
-firewall_audit.jsonl
-requirements.txt
-src/
-  api/
-  schemas/
-  services/
-  main.py
-tests/
+| Regex | LLM |
+|-------|-----|
+| High throughput | Higher semantic accuracy |
+| Deterministic | Context-aware |
+| Near-zero latency | Added network latency |
+| No API cost | Potential API costs |
+
+---
+
+### Cloud vs. Local
+
+| Gemini | Ollama |
+|---------|--------|
+| Strong reasoning | Full local execution |
+| Faster responses | Zero API cost |
+| External dependency | Higher compute requirements |
+| Possible rate limits | Slower cold starts |
+
+---
+
+# Future Improvements
+
+- Add fine-grained Regex rules for specialized prompt injection variants (e.g., localized languages).
+- Transition to a fully local **Small Language Model (SLM)** judge to improve privacy and eliminate external API dependence.
+- Implement authentication (**JWT**) and role-based access control (**RBAC**) for dashboard access.
+- Extend observability with:
+  - Dynamic filtering
+  - Search
+  - CSV export
+- Add structured alerting mechanisms:
+  - Slack webhooks
+  - Email notifications
+  - Repeated blocked request alerts
+  - Rate-limit violation alerts
+
+---
+
+# Project Structure
+
+```plaintext
+LLM_Firewall_Project/
+├── src/
+│   ├── api/
+│   │   └── routes/
+│   │       └── proxy.py
+│   ├── schemas/
+│   │   └── proxy.py
+│   ├── services/
+│   │   ├── audit_logger.py
+│   │   └── decision_logic.py
+│   └── main.py
+│
+├── tests/
+│   └── test_decision_logic.py
+│
+├── dashboard.py
+├── run_demo.py
+├── firewall_audit.jsonl
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
-
-## Notes
-
-- The dashboard handles a missing or partially written audit log gracefully.
-- The backend writes audit events in JSONL format for simple ingestion and analysis.
-- If you change the Gemini model name, update `GEMINI_MODEL` in `.env`.
