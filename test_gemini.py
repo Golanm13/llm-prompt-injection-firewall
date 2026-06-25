@@ -1,17 +1,19 @@
 import os
-from google.genai import Client
+from dotenv import load_dotenv
+from google import genai
 
+load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
-print(f"Found API Key in environment: {api_key[:10] if api_key else 'None'}...")
+model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
+print(f"Testing model: {model_name}")
 try:
-    client = Client(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents="Hello, this is a diagnostic test.",
+        model=model_name,
+        contents="Hello, this is a connection test."
     )
-    print("\n--- Success! Response from Gemini ---")
+    print("Success! Response:")
     print(response.text)
 except Exception as e:
-    print("\n--- Error details from Google API ---")
-    print(str(e))
+    print(f"Error during API call: {e}")

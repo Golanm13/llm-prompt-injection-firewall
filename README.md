@@ -76,7 +76,7 @@ Create a `.env` file in the project root based on `.env.example`.
 
 ```env
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
 OLLAMA_HOST=http://localhost:11434
 ```
 
