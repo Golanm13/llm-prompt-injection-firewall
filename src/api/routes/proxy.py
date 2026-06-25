@@ -33,7 +33,6 @@ def proxy_prompt(request: Request, payload: ProxyRequest) -> ProxyResponse:
         client_ip = request.client.host if request.client else "unknown"
         safety = is_prompt_safe(payload.prompt)
 
-        # רישום מיידי ומובטח של האירוע ללוג לפני הפנייה למודלים
         log_prompt_event(
             client_ip=client_ip,
             prompt_text=payload.prompt,

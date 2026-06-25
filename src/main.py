@@ -21,7 +21,6 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-# טעינת משתני הסביבה מהמיקום הנכון
 _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=_ENV_PATH)
 
@@ -30,7 +29,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
-# אתחול הלקוח של גוגל - אם אין מפתח, נזרוק שגיאה ברורה בריצה
 if not GEMINI_API_KEY:
     raise ValueError("CRITICAL: GEMINI_API_KEY is not set in environment or .env file")
 
@@ -80,7 +78,6 @@ def generate_gemini_response(prompt: str) -> str:
         return str(response)
     except Exception as exc:  # Caught 429 / Quota / Network errors
         try:
-            # ניסיון מעבר אוטומטי למודל המקומי במידה וג'מיני חסום
             return _call_ollama_generation(prompt)
         except Exception:
             raise HTTPException(

@@ -61,7 +61,12 @@ The first layer rejects clearly malicious prompts quickly, while the second laye
 ---
 
 # How to Run
-
+> [!NOTE]
+> **Windows Users (PowerShell):** If you encounter an execution policy error when trying to activate the virtual environment, run the following command in your terminal **before** activation:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+> \venv\Scripts\Activate.
+> ```
 ## 1. Install Dependencies
 
 ```bash
