@@ -108,7 +108,7 @@ def send_prompt(prompt_text: str, proxy_url: str) -> requests.Response:
     return requests.post(
         proxy_url,
         json=build_prompt_request(prompt_text),
-        timeout=30,
+        timeout=120,
     )
 
 
